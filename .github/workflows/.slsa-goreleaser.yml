@@ -1,37 +1,56 @@
-# Version for this file.
-version: 1
+provenance:
+    runs-on: ubuntu-latest
+    needs: [builder, build, build-dry, rng, detect-env]
+    permissions:
+      id-token: write # Needed to create an OIDC token for keyless signing.
+      contents: read
+      actions: read # Needed to read workflow info.
+    outputs:
+      go-provenance-name: ${{ steps.sign-prov.outputs.signed-provenance-name }}
+      go-provenance-sha256: ${{ steps.sign-prov.outputs.signed-provenance-sha256 }}
+    steps:
+      - name: Checkout builder repository
+        uses: slsa-framework/slsa-github-generator/.github/actions/secure-builder-checkout@main
+        with:
+          repository: "${{ needs.detect-env.outputs.repository }}"
+          ref: "${{ needs.detect-env.outputs.ref }}"
+          path: __BUILDER_CHECKOUT_DIR__
 
-# (Optional) List of env variables used during compilation.
-env:
-  - GO111MODULE=on
-  - CGO_ENABLED=0
+      - name: Download builder
+        uses: ./__BUILDER_CHECKOUT_DIR__/.github/actions/secure-download-artifact
+        with:
+          name: "${{ env.BUILDER_BINARY }}-${{ needs.rng.outputs.value }}"
+          path: "${{ env.BUILDER_BINARY }}"
+          sha256: "${{ needs.builder.outputs.go-builder-sha256 }}"
+          set-executable: true
 
-# (Optional) Flags for the compiler.
-#flags:
-#  - -trimpath
- # - -tags=netgo
+      - name: Create and sign provenance
+        id: sign-prov
+        env:
+          UNTRUSTED_BINARY_NAME: "${{ needs.build-dry.outputs.go-binary-name }}"
+          UNTRUSTED_BINARY_HASH: "${{ needs.build.outputs.go-binary-sha256 }}"
+          UNTRUSTED_COMMAND: "${{ needs.build-dry.outputs.go-command }}"
+          UNTRUSTED_ENV: "${{ needs.build-dry.outputs.go-env }}"
+          UNTRUSTED_WORKING_DIR: "${{ needs.build-dry.outputs.go-working-dir }}"
+          GITHUB_CONTEXT: "${{ toJSON(github) }}"
+        run: |
+          set -euo pipefail
 
-# The OS to compile for. `GOOS` env variable will be set to this value.
-goos: linux
+          echo "provenance generator is $BUILDER_BINARY"
 
-# The architecture to compile for. `GOARCH` env variable will be set to this value.
-goarch: amd64
+          # Create and sign provenance
+          # This sets signed-provenance-name to the name of the signed DSSE envelope.
+          "$GITHUB_WORKSPACE/$BUILDER_BINARY" provenance \
+            --binary-name "$UNTRUSTED_BINARY_NAME" \
+            --digest "$UNTRUSTED_BINARY_HASH" \
+            --command "$UNTRUSTED_COMMAND" \
+            --env "$UNTRUSTED_ENV" \
+            --workingDir "$UNTRUSTED_WORKING_DIR"
 
-# (Optional) Entrypoint to compile.
-# main: ./path/to/main.go
- main: ./cmd/main.go
-
-# (Optional) Working directory. (default: root of the project)
-# dir: ./relative/path/to/dir
-
-# Binary output name.
-# {{ .Os }} will be replaced by goos field in the config file.
-# {{ .Arch }} will be replaced by goarch field in the config file.
-binary: binary-{{ .Os }}-{{ .Arch }}
-
-# (Optional) ldflags generated dynamically in the workflow, and set as the `evaluated-envs` input variables in the workflow.
-ldflags:
-  - "-X main.Version={{ .Env.VERSION }}"
-  - "-X main.Commit={{ .Env.COMMIT }}"
-  - "-X main.CommitDate={{ .Env.COMMIT_DATE }}"
-  - "-X main.TreeState={{ .Env.TREE_STATE }}"
+      - name: Upload the signed provenance
+        uses: actions/upload-artifact@89ef406dd8d7e03cfd12d9e0a4a378f454709029 # v4.3.5
+        with:
+          name: "${{ steps.sign-prov.outputs.signed-provenance-name }}"
+          path: "${{ steps.sign-prov.outputs.signed-provenance-name }}"
+          if-no-files-found: error
+          retention-days: 5
