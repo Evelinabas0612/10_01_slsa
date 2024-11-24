@@ -1,5 +1,4 @@
 # Version for this file.
-# version: 1
 go-version: 1.19
 
 # (Optional) List of env variables used during compilation.
