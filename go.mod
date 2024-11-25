@@ -1,4 +1,4 @@
-module github.com/codeby-student/go-service
+module github.com/Evelinabas0612/10_01_slsa
 
 go 1.19
 
