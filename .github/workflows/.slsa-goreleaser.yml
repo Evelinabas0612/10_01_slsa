@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "*"
+
 permissions: read-all
 
 jobs:
@@ -18,7 +19,7 @@ jobs:
       tree-state: ${{ steps.ldflags.outputs.tree-state }}
     steps:
       - id: checkout
-        uses: actions/checkout@ec3a7ce113134d7a93b817d10a8272cb61118579 # tag=v2.3.4
+        uses: actions/checkout@v4 # tag=v2.3.4
         with:
           fetch-depth: 0
       - id: ldflags
@@ -27,13 +28,15 @@ jobs:
           echo "commit=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           echo "version=$(git describe --tags --always --dirty | cut -c2-)" >> "$GITHUB_OUTPUT"
           echo "tree-state=$(if git diff --quiet; then echo "clean"; else echo "dirty"; fi)" >> "$GITHUB_OUTPUT"
-
   # Trusted builder.
   build:
     permissions:
       id-token: write # To sign the provenance.
       contents: write # To upload assets to release.
-      actions: read   # To read the workflow path.
- uses: slsa-framework/slsa-github-generator/.github/workflows/builder_go_slsa3.yml@v1.5.0
+      actions: read # To read the workflow path.
+    needs: args
+    uses: slsa-framework/slsa-github-generator/.github/workflows/builder_go_slsa3.yml@v2.0.0
     with:
       go-version: 1.19
+      # Optional: only needed if using ldflags.
+      evaluated-envs: "COMMIT_DATE:${{needs.args.outputs.commit-date}}, COMMIT:${{needs.args.outputs.commit}}, VERSION:${{needs.args.outputs.version}}, TREE_STATE:${{needs.args.outputs.tree-state}}"
